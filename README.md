@@ -63,11 +63,33 @@ The backend API is expected to run at:
 - Assignment: School Admission System
 - Position: Assistant Software Engineer
 
-## Development Status
+## Development Progress
 
-Repository initialization in progress.
+| Milestone | Description | Status |
+|---|---|---|
+| 01 | Repository initialization | Completed |
+| 02 | ASP.NET Core backend foundation | Completed |
+| 03 | PostgreSQL integration with EF Core | Completed |
+| 04 | Class management APIs | Pending |
+| 05 | Seat reservation and hold system | Pending |
+| 06 | Hold expiration, confirmation, and cancellation | Pending |
+| 07 | Concurrency protection and automated tests | Pending |
+| 08 | React frontend | Pending |
+| 09 | Docker Compose integration | Pending |
+| 10 | Documentation and final verification | Pending |
 
-The application implementation, testing, containerization, and final documentation will be completed incrementally.
+### Current Database Design
+
+- PostgreSQL 16.
+- Entity Framework Core 8 with the Npgsql provider.
+- `school_classes` and `seat_holds` tables.
+- Application-generated string primary keys.
+- Foreign-key protection against deleting classes with associated holds.
+- Positive seat-capacity database constraint.
+- Indexes for class/status and student/creation-time queries.
+- Database connection configured through `ConnectionStrings__DefaultConnection`.
+
+The application is being implemented incrementally, with build and database verification at each milestone.
 
 ## License
 
