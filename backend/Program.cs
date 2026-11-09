@@ -1,3 +1,5 @@
+using backend.Application.Interfaces;
+using backend.Application.Services;
 using backend.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -20,6 +22,7 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 );
 
 // Register application services.
+builder.Services.AddScoped<IClassService, ClassService>();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
