@@ -9,10 +9,14 @@ namespace backend.Controllers;
 public class ClassesController : ControllerBase
 {
     private readonly IClassService _classService;
+    private readonly IHoldCreationService _holdCreationService;
 
-    public ClassesController(IClassService classService)
+    public ClassesController(
+        IClassService classService,
+        IHoldCreationService holdCreationService)
     {
         _classService = classService;
+        _holdCreationService = holdCreationService;
     }
 
     [HttpPost]
@@ -63,4 +67,46 @@ public class ClassesController : ControllerBase
 
         return Ok(response);
     }
+
+    [HttpPost("{classId}/holds")]
+    [ProducesResponseType(typeof(CreateHoldResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<CreateHoldResponse>> CreateHold(
+        [FromRoute] string classId,
+        [FromHeader(Name = "X-Student-Id")] string? studentId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(studentId) || studentId.Length > 64)
+        {
+            return BadRequest(new
+            {
+                message = "A valid X-Student-Id header is required."
+            });
+        }
+
+        try
+        {
+            var response = await _holdCreationService.CreateAsync(
+                classId,
+                studentId,
+                cancellationToken);
+
+            return StatusCode(StatusCodes.Status201Created, response);
+        }
+        catch (ArgumentException exception)
+        {
+            return BadRequest(new { message = exception.Message });
+        }
+        catch (KeyNotFoundException exception)
+        {
+            return NotFound(new { message = exception.Message });
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Conflict(new { message = exception.Message });
+        }
+    }
+
 }

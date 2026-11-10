@@ -23,6 +23,7 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 
 // Register application services.
 builder.Services.AddScoped<IClassService, ClassService>();
+builder.Services.AddScoped<IHoldCreationService, HoldService>();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
