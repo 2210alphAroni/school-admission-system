@@ -70,9 +70,9 @@ The backend API is expected to run at:
 | 01 | Repository initialization | Completed |
 | 02 | ASP.NET Core backend foundation | Completed |
 | 03 | PostgreSQL integration with EF Core | Completed |
-| 04 | Class management APIs | Pending |
-| 05 | Seat reservation and hold system | Pending |
-| 06 | Hold expiration, confirmation, and cancellation | Pending |
+| 04 | Class management APIs | Completed |
+| 05 | Seat reservation and hold system | Completed |
+| 06 | Hold expiration, confirmation, and cancellation | Completed |
 | 07 | Concurrency protection and automated tests | Pending |
 | 08 | React frontend | Pending |
 | 09 | Docker Compose integration | Pending |

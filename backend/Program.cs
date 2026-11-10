@@ -23,7 +23,13 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 
 // Register application services.
 builder.Services.AddScoped<IClassService, ClassService>();
-builder.Services.AddScoped<IHoldCreationService, HoldService>();
+builder.Services.AddScoped<HoldService>();
+
+builder.Services.AddScoped<IHoldService>(
+    provider => provider.GetRequiredService<HoldService>());
+
+builder.Services.AddScoped<IHoldCreationService>(
+    provider => provider.GetRequiredService<HoldService>());
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();

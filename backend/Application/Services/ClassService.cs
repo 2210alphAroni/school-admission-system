@@ -60,6 +60,8 @@ public class ClassService : IClassService
 
     private IQueryable<ClassAvailabilityResponse> BuildAvailabilityQuery()
     {
+        var now = DateTimeOffset.UtcNow;
+
         return _dbContext.SchoolClasses
             .AsNoTracking()
             .Select(schoolClass => new ClassAvailabilityResponse
@@ -69,14 +71,18 @@ public class ClassService : IClassService
                 TotalSeats = schoolClass.TotalSeats,
 
                 HeldSeats = schoolClass.Holds.Count(
-                    hold => hold.Status == HoldStatus.Held),
+                    hold =>
+                        hold.Status == HoldStatus.Held
+                        && hold.ExpiresAt > now),
 
                 ConfirmedSeats = schoolClass.Holds.Count(
                     hold => hold.Status == HoldStatus.Confirmed),
 
                 AvailableSeats = schoolClass.TotalSeats
                     - schoolClass.Holds.Count(
-                        hold => hold.Status == HoldStatus.Held)
+                        hold =>
+                            hold.Status == HoldStatus.Held
+                            && hold.ExpiresAt > now)
                     - schoolClass.Holds.Count(
                         hold => hold.Status == HoldStatus.Confirmed)
             });

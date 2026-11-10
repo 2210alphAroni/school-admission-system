@@ -1,3 +1,4 @@
+
 using backend.Application.DTOs;
 using backend.Application.Interfaces;
 using backend.Domain.Entities;
@@ -7,7 +8,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace backend.Application.Services;
 
-public class HoldService : IHoldCreationService
+public class HoldService : IHoldService, IHoldCreationService
 {
     private readonly ApplicationDbContext _dbContext;
     private readonly int _holdDurationSeconds;
@@ -38,17 +39,15 @@ public class HoldService : IHoldCreationService
         string studentId,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(studentId) || studentId.Length > 64)
-        {
-            throw new ArgumentException(
-                "A valid student ID is required.",
-                nameof(studentId));
-        }
+        ValidateStudentId(studentId);
+
+        await using var transaction =
+            await _dbContext.Database.BeginTransactionAsync(cancellationToken);
 
         var schoolClass = await _dbContext.SchoolClasses
-            .FirstOrDefaultAsync(
-                item => item.Id == classId,
-                cancellationToken);
+            .FromSqlInterpolated(
+                $"SELECT * FROM school_classes WHERE id = {classId} FOR UPDATE")
+            .SingleOrDefaultAsync(cancellationToken);
 
         if (schoolClass is null)
         {
@@ -112,14 +111,227 @@ public class HoldService : IHoldCreationService
         _dbContext.SeatHolds.Add(seatHold);
 
         await _dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
 
         return new CreateHoldResponse
         {
             HoldId = seatHold.Id,
             ClassId = seatHold.ClassId,
             StudentId = seatHold.StudentId,
-            Status = seatHold.Status.ToString(),
+            Status = FormatStatus(seatHold.Status),
             ExpiresAt = seatHold.ExpiresAt
         };
+    }
+
+    public async Task<HoldStatusResponse?> GetByIdAsync(
+        string holdId,
+        CancellationToken cancellationToken = default)
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        await _dbContext.SeatHolds
+            .Where(item =>
+                item.Id == holdId &&
+                item.Status == HoldStatus.Held &&
+                item.ExpiresAt <= now)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(
+                    item => item.Status,
+                    HoldStatus.Expired),
+                cancellationToken);
+
+        var hold = await _dbContext.SeatHolds
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                item => item.Id == holdId,
+                cancellationToken);
+
+        if (hold is null)
+        {
+            return null;
+        }
+
+        return new HoldStatusResponse
+        {
+            HoldId = hold.Id,
+            ClassId = hold.ClassId,
+            Status = FormatStatus(hold.Status),
+            ExpiresAt = hold.ExpiresAt
+        };
+    }
+
+    public async Task<ConfirmHoldResponse?> ConfirmAsync(
+        string holdId,
+        string studentId,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateStudentId(studentId);
+
+        var hold = await _dbContext.SeatHolds
+            .FirstOrDefaultAsync(
+                item => item.Id == holdId,
+                cancellationToken);
+
+        if (hold is null || hold.StudentId != studentId)
+        {
+            return null;
+        }
+
+        await using var transaction =
+            await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        await LockClassAsync(hold.ClassId, cancellationToken);
+
+        // Reload after acquiring the class lock.
+        await _dbContext.Entry(hold).ReloadAsync(cancellationToken);
+
+        if (hold.Status != HoldStatus.Held)
+        {
+            throw new InvalidOperationException(
+                $"This hold cannot be confirmed because its status is {FormatStatus(hold.Status)}.");
+        }
+
+        if (hold.ExpiresAt <= DateTimeOffset.UtcNow)
+        {
+            hold.Status = HoldStatus.Expired;
+
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            throw new InvalidOperationException(
+                "This hold has expired and cannot be confirmed.");
+        }
+
+        hold.Status = HoldStatus.Confirmed;
+        hold.ConfirmedAt = DateTimeOffset.UtcNow;
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return new ConfirmHoldResponse
+        {
+            HoldId = hold.Id,
+            Status = FormatStatus(hold.Status)
+        };
+    }
+
+    public async Task<bool> CancelAsync(
+        string holdId,
+        string studentId,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateStudentId(studentId);
+
+        var hold = await _dbContext.SeatHolds
+            .FirstOrDefaultAsync(
+                item => item.Id == holdId,
+                cancellationToken);
+
+        if (hold is null || hold.StudentId != studentId)
+        {
+            return false;
+        }
+
+        await using var transaction =
+            await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        await LockClassAsync(hold.ClassId, cancellationToken);
+
+        await _dbContext.Entry(hold).ReloadAsync(cancellationToken);
+
+        if (hold.Status != HoldStatus.Held)
+        {
+            throw new InvalidOperationException(
+                $"This hold cannot be cancelled because its status is {FormatStatus(hold.Status)}.");
+        }
+
+        if (hold.ExpiresAt <= DateTimeOffset.UtcNow)
+        {
+            hold.Status = HoldStatus.Expired;
+
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            throw new InvalidOperationException(
+                "This hold has expired and cannot be cancelled.");
+        }
+
+        hold.Status = HoldStatus.Cancelled;
+        hold.CancelledAt = DateTimeOffset.UtcNow;
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return true;
+    }
+
+    public async Task<IReadOnlyList<StudentHoldResponse>> GetStudentHoldsAsync(
+        string studentId,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateStudentId(studentId);
+
+        var now = DateTimeOffset.UtcNow;
+
+        await _dbContext.SeatHolds
+            .Where(item =>
+                item.StudentId == studentId &&
+                item.Status == HoldStatus.Held &&
+                item.ExpiresAt <= now)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(
+                    item => item.Status,
+                    HoldStatus.Expired),
+                cancellationToken);
+
+        var holds = await _dbContext.SeatHolds
+            .AsNoTracking()
+            .Include(item => item.SchoolClass)
+            .Where(item => item.StudentId == studentId)
+            .OrderByDescending(item => item.CreatedAt)
+            .ToListAsync(cancellationToken);
+
+        return holds.Select(hold => new StudentHoldResponse
+        {
+            HoldId = hold.Id,
+            ClassId = hold.ClassId,
+            ClassName = hold.SchoolClass?.Name ?? string.Empty,
+            Status = FormatStatus(hold.Status),
+            ExpiresAt = hold.ExpiresAt
+        }).ToList();
+    }
+
+    private async Task LockClassAsync(
+        string classId,
+        CancellationToken cancellationToken)
+    {
+        var schoolClass = await _dbContext.SchoolClasses
+            .FromSqlInterpolated(
+                $"SELECT * FROM school_classes WHERE id = {classId} FOR UPDATE")
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (schoolClass is null)
+        {
+            throw new KeyNotFoundException(
+                $"Class with ID '{classId}' was not found.");
+        }
+    }
+
+    private static string FormatStatus(HoldStatus status)
+    {
+        return status.ToString().ToUpperInvariant();
+    }
+
+    private static void ValidateStudentId(string studentId)
+    {
+        if (string.IsNullOrWhiteSpace(studentId) ||
+            studentId.Length != 17 ||
+            studentId.Any(character =>
+                character < '0' || character > '9'))
+        {
+            throw new ArgumentException(
+                "Student ID must contain exactly 17 digits.",
+                nameof(studentId));
+        }
     }
 }
